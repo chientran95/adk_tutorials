@@ -17,11 +17,10 @@ logging.basicConfig(level=logging.ERROR)
 from dotenv import load_dotenv
 load_dotenv()
 
-from weather_agent import get_weather, call_agent_async
+from weather_agent import call_agent_async
 from reception_agents import greeting_agent, farewell_agent
 
 print("Libraries imported.")
-
 
 
 def get_weather_stateful(city: str, tool_context: ToolContext) -> dict:

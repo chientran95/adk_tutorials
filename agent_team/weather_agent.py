@@ -97,7 +97,7 @@ print(f"Runner created for agent '{runner.agent.name}'.")
 
 async def call_agent_async(query: str, runner, user_id, session_id):
     """Sends a query to the agent and prints the final response."""
-    print(f"\n>>> User Query: {query}")
+    print(f">>> User Query: {query}")
 
     # Prepare the user's message in ADK format
     content = types.Content(role='user', parts=[types.Part(text=query)])

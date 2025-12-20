@@ -22,7 +22,7 @@ from reception_agents import greeting_agent, farewell_agent
 print("Libraries imported.")
 
 
-AGENT_MODEL = os.getenv("MODEL_NAME")
+AGENT_MODEL = os.getenv("MODEL_GPT_4")
 
 weather_agent_team = Agent(
     name="weather_agent_v2",
