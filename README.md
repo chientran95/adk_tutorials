@@ -8,4 +8,5 @@ This repository is to develop agents using Google agent development kit ([google
   - `uv run agent_team/weather_agent.py`: Single agent and tool with simple session and runner
   - `uv run agent_team/weather_agent_team.py`: Agent team with simple session
   - `uv run agent_team/weather_agent_team_context.py`: Agent team with statefull session
-  - `uv run agent_team/weather_agent_team_context.py --test_guardrail`: Agent team with statefull session a d before LLM guardrail
+  - `uv run agent_team/weather_agent_team_context.py --test_model_guardrail`: Agent team with statefull session and test for before LLM guardrail
+  - `uv run agent_team/weather_agent_team_context.py --test_tool_guardrail`: Agent team with statefull session and test before tool guardrail
