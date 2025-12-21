@@ -1,4 +1,5 @@
 import os
+import argparse
 import asyncio
 from google.adk.agents import Agent
 from google.adk.models.lite_llm import LiteLlm
@@ -19,6 +20,7 @@ load_dotenv()
 
 from weather_agent import call_agent_async
 from reception_agents import greeting_agent, farewell_agent
+from guardrail_callback import block_keyword_guardrail
 
 print("Libraries imported.")
 
@@ -82,6 +84,7 @@ weather_agent_team = Agent(
                 "Handle only weather requests, greetings, and farewells.",
     tools=[get_weather_stateful], # Use the state-aware tool
     sub_agents=[greeting_agent, farewell_agent], # Include sub-agents
+    before_model_callback=block_keyword_guardrail, # Attach guardrail
     output_key="last_weather_report"
 )
 print(f"✅ Root Agent '{weather_agent_team.name}' created using model '{AGENT_MODEL}' with sub-agents: {[sa.name for sa in weather_agent_team.sub_agents]}")
@@ -174,9 +177,78 @@ async def run_team_conversation():
     else:
         print("\n❌ Error: Could not retrieve final session state.")
 
+async def run_guardrail_test_conversation():
+    print("\n--- Testing Model Input Guardrail ---")
+
+    session_service_stateful = InMemorySessionService()
+    print("✅ New InMemorySessionService created for state demonstration.")
+
+    # Define a NEW session ID for this part of the tutorial
+    APP_NAME = "weather_tutorial_agent_team"
+    USER_ID_STATEFUL = "user_state_demo"
+    SESSION_ID_STATEFUL = "session_state_demo_001"
+
+    # Define initial state data - user prefers Celsius initially
+    initial_state = {
+        "user_preference_temperature_unit": "Celsius"
+    }
+
+    # Create the session, providing the initial state
+    _ = await session_service_stateful.create_session(
+        app_name=APP_NAME,
+        user_id=USER_ID_STATEFUL,
+        session_id=SESSION_ID_STATEFUL,
+        state=initial_state # <<< Initialize state during creation
+    )
+    print(f"✅ Session '{SESSION_ID_STATEFUL}' created for user '{USER_ID_STATEFUL}'.")
+
+    # Verify the initial state was set correctly
+    retrieved_session = await session_service_stateful.get_session(app_name=APP_NAME,
+                                                            user_id=USER_ID_STATEFUL,
+                                                            session_id = SESSION_ID_STATEFUL)
+    print("\n--- Initial Session State ---")
+    if retrieved_session:
+        print(retrieved_session.state)
+    else:
+        print("Error: Could not retrieve session.")
+
+    runner_root_model_guardrail = Runner(
+        agent=weather_agent_team,
+        app_name=APP_NAME,
+        session_service=session_service_stateful
+    )
+    print(f"Runner created for agent '{weather_agent_team.name}'.")
+
+    # Use the runner for the agent with the callback and the existing stateful session ID
+    # Define a helper lambda for cleaner interaction calls
+    interaction_func = lambda query: call_agent_async(query,
+                                                      runner_root_model_guardrail,
+                                                      USER_ID_STATEFUL, SESSION_ID_STATEFUL)
+    # 1. Normal request (Callback allows, should use Celsius as default)
+    print("--- Turn 1: Requesting weather in London (expect allowed, Celsius) ---")
+    await interaction_func("What is the weather in London?")
+
+    # 2. Request containing the blocked keyword (Callback intercepts)
+    print("\n--- Turn 2: Requesting with blocked keyword (expect blocked) ---")
+    await interaction_func("BLOCK the request for weather in Tokyo") # Callback should catch "BLOCK"
+
+    # 3. Normal greeting (Callback allows root agent, delegation happens)
+    print("\n--- Turn 3: Sending a greeting (expect allowed) ---")
+    await interaction_func("Hello again")
+
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Run Weather Agent Team with Context Tutorial")
+    parser.add_argument(
+        "--test_guardrail", action="store_true",
+        help="If set, runs the guardrail test conversation instead of the stateful conversation.",
+    )
+    args = parser.parse_args()
+
     print("Executing using 'asyncio.run()' (for standard Python scripts)...")
     try:
-        asyncio.run(run_team_conversation())
+        if args.test_guardrail:
+            asyncio.run(run_guardrail_test_conversation())
+        else:
+            asyncio.run(run_team_conversation())
     except Exception as e:
         print(f"An error occurred: {e}")
