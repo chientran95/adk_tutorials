@@ -20,7 +20,7 @@ load_dotenv()
 
 from weather_agent import call_agent_async
 from reception_agents import greeting_agent, farewell_agent
-from guardrail_callback import block_keyword_guardrail
+from guardrail_callback import block_keyword_guardrail, block_paris_tool_guardrail
 
 print("Libraries imported.")
 
@@ -84,7 +84,8 @@ weather_agent_team = Agent(
                 "Handle only weather requests, greetings, and farewells.",
     tools=[get_weather_stateful], # Use the state-aware tool
     sub_agents=[greeting_agent, farewell_agent], # Include sub-agents
-    before_model_callback=block_keyword_guardrail, # Attach guardrail
+    before_model_callback=block_keyword_guardrail, # Attach model guardrail
+    before_tool_callback=block_paris_tool_guardrail, # Attach tool guardrail
     output_key="last_weather_report"
 )
 print(f"✅ Root Agent '{weather_agent_team.name}' created using model '{AGENT_MODEL}' with sub-agents: {[sa.name for sa in weather_agent_team.sub_agents]}")
@@ -236,18 +237,95 @@ async def run_guardrail_test_conversation():
     print("\n--- Turn 3: Sending a greeting (expect allowed) ---")
     await interaction_func("Hello again")
 
+    print("\n--- Inspecting Final Session State (After Guardrail Test) ---")
+    # Use the session service instance associated with this stateful session
+    final_session = await session_service_stateful.get_session(app_name=APP_NAME,
+                                                         user_id=USER_ID_STATEFUL,
+                                                         session_id=SESSION_ID_STATEFUL)
+    if final_session:
+        # Use .get() for safer access
+        print(f"Guardrail Triggered Flag: {final_session.state.get('guardrail_block_keyword_triggered', 'Not Set (or False)')}")
+        print(f"Last Weather Report: {final_session.state.get('last_weather_report', 'Not Set')}") # Should be London weather if successful
+        print(f"Temperature Unit: {final_session.state.get('user_preference_temperature_unit', 'Not Set')}") # Should be Fahrenheit
+        # print(f"Full State Dict: {final_session.state}") # For detailed view
+    else:
+        print("\n❌ Error: Could not retrieve final session state.")
+
+async def run_tool_guardrail_test():
+    print("\n--- Testing Tool Argument Guardrail ('Paris' blocked) ---")
+
+    session_service_stateful = InMemorySessionService()
+    print("✅ New InMemorySessionService created for state demonstration.")
+
+    # Define a NEW session ID for this part of the tutorial
+    APP_NAME = "weather_tutorial_agent_team"
+    USER_ID_STATEFUL = "user_state_demo"
+    SESSION_ID_STATEFUL = "session_state_demo_001"
+
+    # Define initial state data - user prefers Celsius initially
+    initial_state = {
+        "user_preference_temperature_unit": "Celsius"
+    }
+
+    # Create the session, providing the initial state
+    _ = await session_service_stateful.create_session(
+        app_name=APP_NAME,
+        user_id=USER_ID_STATEFUL,
+        session_id=SESSION_ID_STATEFUL,
+        state=initial_state # <<< Initialize state during creation
+    )
+    print(f"✅ Session '{SESSION_ID_STATEFUL}' created for user '{USER_ID_STATEFUL}'.")
+
+    # Verify the initial state was set correctly
+    retrieved_session = await session_service_stateful.get_session(app_name=APP_NAME,
+                                                            user_id=USER_ID_STATEFUL,
+                                                            session_id = SESSION_ID_STATEFUL)
+    print("\n--- Initial Session State ---")
+    if retrieved_session:
+        print(retrieved_session.state)
+    else:
+        print("Error: Could not retrieve session.")
+
+    runner_root_tool_guardrail = Runner(
+        agent=weather_agent_team,
+        app_name=APP_NAME,
+        session_service=session_service_stateful
+    )
+    print(f"Runner created for agent '{weather_agent_team.name}'.")
+
+    interaction_func = lambda query: call_agent_async(query, runner_root_tool_guardrail,
+                                                      USER_ID_STATEFUL, SESSION_ID_STATEFUL)
+
+    # Use the runner for the agent with both callbacks and the Celsius state)
+    print("--- Turn 1: Requesting weather in New York (expect allowed) ---")
+    await interaction_func("What's the weather in New York?")
+
+    # 2. Blocked city (Should pass model callback, but be blocked by tool callback)
+    print("\n--- Turn 2: Requesting weather in Paris (expect blocked by tool guardrail) ---")
+    await interaction_func("How about Paris?") # Tool callback should intercept this
+
+    # 3. Another allowed city (Should work normally again)
+    print("\n--- Turn 3: Requesting weather in London (expect allowed) ---")
+    await interaction_func("Tell me the weather in London.")
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run Weather Agent Team with Context Tutorial")
     parser.add_argument(
-        "--test_guardrail", action="store_true",
+        "--test_model_guardrail", action="store_true",
+        help="If set, runs the guardrail test conversation instead of the stateful conversation.",
+    )
+    parser.add_argument(
+        "--test_tool_guardrail", action="store_true",
         help="If set, runs the guardrail test conversation instead of the stateful conversation.",
     )
     args = parser.parse_args()
 
     print("Executing using 'asyncio.run()' (for standard Python scripts)...")
     try:
-        if args.test_guardrail:
+        if args.test_model_guardrail:
             asyncio.run(run_guardrail_test_conversation())
+        elif args.test_tool_guardrail:
+            asyncio.run(run_tool_guardrail_test())
         else:
             asyncio.run(run_team_conversation())
     except Exception as e:
